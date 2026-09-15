@@ -1,5 +1,6 @@
 import { DataPackage, DataPackageCache, GamePackage, GetDataPackagePacket } from "../../api";
 import { Client } from "../Client.ts";
+import { DefaultIndexedDBCache } from "../DefaultIndexedDBCache.ts";
 import { PackageMetadata } from "../PackageMetadata.ts";
 
 /**
@@ -10,7 +11,7 @@ export class DataPackageManager {
     readonly #packages = new Map<string, PackageMetadata>();
     readonly #checksums = new Map<string, string>();
     readonly #games = new Set<string>();
-    #cache: DataPackageCache | null = null;
+    #cache: DataPackageCache | null;
 
     /**
      * Instantiates a new DataPackageManager. Should only be instantiated by creating a new {@link Client}.
@@ -29,6 +30,14 @@ export class DataPackageManager {
                 this.#games.add(game);
             }
         });
+
+        // Register the default cache only if this environment supports it.
+        // Library users can override this with setCache if they wish.
+        if (typeof window === "object" && typeof window.indexedDB === "object") {
+            this.#cache = new DefaultIndexedDBCache();
+        } else {
+            this.#cache = null;
+        }
     }
 
     /**
@@ -40,7 +49,15 @@ export class DataPackageManager {
         return this.#packages.get(game) ?? null;
     }
 
-    public setCache(cache: DataPackageCache) {
+    /**
+     * Registers a custom data package cache, or disables caching completely.
+     * @param cache A {@link DataPackageCache} implementation, which will be called into when fetching the data package,
+     * or `null` to disable caching completely.
+     * @remarks By default, the library provides a default cache using IndexedDB in browser environments, but providing
+     * a custom cache overrides the default implementation. This can you give more control over the cache if you need
+     * it, and it's required if you want to have data package caching in a non-browser environment.
+     */
+    public setCache(cache: DataPackageCache | null) {
         this.#cache = cache;
     }
 
@@ -105,6 +122,10 @@ export class DataPackageManager {
 
         if (update) {
             this.importPackage(data);
+        }
+
+        if (this.#cache && this.#cache.cachePackages) {
+            await this.#cache.cachePackages(data.games);
         }
 
         return data;
